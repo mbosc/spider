@@ -1,11 +1,11 @@
-use crate::InputState;
 use crate::action::GameState;
 use crate::cards::{CardColor, Groups};
 use crate::cheats::CHEAT_NAMES;
 use crate::help::get_keybindings;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, read};
+use crate::InputState;
+use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
-use crossterm::{ExecutableCommand, QueueableCommand, cursor, terminal};
+use crossterm::{cursor, terminal, ExecutableCommand, QueueableCommand};
 use std::io;
 use std::io::{Stdout, Write};
 
@@ -14,9 +14,9 @@ pub struct Terminal;
 impl Drop for Terminal {
     fn drop(&mut self) {
         let mut stdout = io::stdout();
-        stdout.execute(terminal::LeaveAlternateScreen).unwrap();
-        stdout.execute(cursor::Show).unwrap();
-        terminal::disable_raw_mode().unwrap();
+        let _ = stdout.execute(terminal::LeaveAlternateScreen);
+        let _ = stdout.execute(cursor::Show);
+        let _ = terminal::disable_raw_mode();
     }
 }
 pub fn init() -> Result<Terminal, io::Error> {
@@ -93,7 +93,7 @@ fn draw_game(
     println!("\r");
 
     for k in 0..game_state.deck.len() / 10 {
-        print!("[{k:>3}] ");
+        print!("[{:>3}] ", k);
     }
 
     println!("\r");
@@ -106,7 +106,7 @@ fn draw_cheat_menu(stdout: &mut Stdout) -> Result<(), io::Error> {
         stdout.execute(SetForegroundColor(Color::Grey))?;
         print!("{:>3}: ", index + 1);
         stdout.execute(SetForegroundColor(Color::Reset))?;
-        println!("{cheat}\r");
+        println!("{}\r", cheat);
     }
     println!("\r");
 
@@ -116,8 +116,7 @@ fn draw_cheat_menu(stdout: &mut Stdout) -> Result<(), io::Error> {
 pub fn draw(game_state: &GameState, input_state: InputState) -> Result<(), io::Error> {
     let mut stdout = io::stdout();
     stdout.queue(terminal::Clear(terminal::ClearType::All))?;
-    stdout.queue(cursor::MoveToRow(0))?;
-    stdout.queue(cursor::MoveToColumn(0))?;
+    stdout.queue(cursor::MoveTo(0, 0))?;
 
     stdout.queue(SetBackgroundColor(Color::Reset))?;
     stdout.flush()?;
@@ -126,7 +125,7 @@ pub fn draw(game_state: &GameState, input_state: InputState) -> Result<(), io::E
             CardColor::Red => Color::Red,
             CardColor::Black => Color::White,
         }))?;
-        print!(" [{suit}] ");
+        print!(" [{}] ", suit);
     }
     print!("\r\n\r\n");
 
@@ -149,7 +148,8 @@ pub fn draw(game_state: &GameState, input_state: InputState) -> Result<(), io::E
 }
 
 fn draw_help_text(input_state: InputState, stdout: &mut Stdout) -> Result<(), io::Error> {
-    let terminal_width = terminal::size()?.0 as usize;
+    let (width, _height) = terminal::size()?;
+    let terminal_width = width as usize;
 
     let mut x = 0;
     for keybinding in get_keybindings(input_state) {
@@ -182,7 +182,6 @@ pub fn get_input() -> Result<Input, io::Error> {
             Event::Key(KeyEvent {
                 code: KeyCode::Char('C'),
                 modifiers,
-                ..
             }) if modifiers.contains(KeyModifiers::SHIFT)
                 || modifiers.contains(KeyModifiers::CONTROL) =>
             {
@@ -192,10 +191,16 @@ pub fn get_input() -> Result<Input, io::Error> {
             Event::Key(KeyEvent {
                 code: KeyCode::Char('c'),
                 modifiers,
-                ..
-            }) if (modifiers.contains(KeyModifiers::CONTROL)) => return Ok(Input::Quit),
+            }) if modifiers.contains(KeyModifiers::CONTROL) => return Ok(Input::Quit),
             Event::Key(KeyEvent {
-                code: KeyCode::Esc | KeyCode::Char('q' | 'c'),
+                code: KeyCode::Esc, ..
+            }) => return Ok(Input::ExitMenu),
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('q'),
+                ..
+            }) => return Ok(Input::ExitMenu),
+            Event::Key(KeyEvent {
+                code: KeyCode::Char('c'),
                 ..
             }) => return Ok(Input::ExitMenu),
             Event::Key(KeyEvent {
@@ -213,11 +218,10 @@ pub fn get_input() -> Result<Input, io::Error> {
                 ..
             }) => return Ok(Input::Undo),
             Event::Key(KeyEvent {
-                code: KeyCode::Char(char @ '0'..='9'),
-                modifiers: _,
+                code: KeyCode::Char(c),
                 ..
-            }) => {
-                let value = (char.to_digit(10).unwrap() + 9) % 10;
+            }) if c >= '0' && c <= '9' => {
+                let value = (c.to_digit(10).unwrap() + 9) % 10;
                 return Ok(Input::Row(value));
             }
             _ => (),

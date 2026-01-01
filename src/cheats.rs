@@ -1,6 +1,6 @@
-use crate::SpiderRand;
 use crate::action::GameState;
 use crate::cards::{Card, Suit};
+use crate::SpiderRand;
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 
@@ -42,20 +42,38 @@ pub fn generate_cheat(game_state: &GameState, cheat_number: usize) -> Option<Che
             })
         }
         1 => Some(Cheat::HarvestTopRow {
-            turn_over_cards: game_state
-                .stacks
-                .clone()
-                .map(|i| i.len() >= 2 && !i[i.len() - 2].is_facing_up),
+            turn_over_cards: {
+                let stacks = game_state.stacks.clone();
+                [
+                    stacks[0].len() >= 2 && !stacks[0][stacks[0].len() - 2].is_facing_up,
+                    stacks[1].len() >= 2 && !stacks[1][stacks[1].len() - 2].is_facing_up,
+                    stacks[2].len() >= 2 && !stacks[2][stacks[2].len() - 2].is_facing_up,
+                    stacks[3].len() >= 2 && !stacks[3][stacks[3].len() - 2].is_facing_up,
+                    stacks[4].len() >= 2 && !stacks[4][stacks[4].len() - 2].is_facing_up,
+                    stacks[5].len() >= 2 && !stacks[5][stacks[5].len() - 2].is_facing_up,
+                    stacks[6].len() >= 2 && !stacks[6][stacks[6].len() - 2].is_facing_up,
+                    stacks[7].len() >= 2 && !stacks[7][stacks[7].len() - 2].is_facing_up,
+                    stacks[8].len() >= 2 && !stacks[8][stacks[8].len() - 2].is_facing_up,
+                    stacks[9].len() >= 2 && !stacks[9][stacks[9].len() - 2].is_facing_up,
+                ]
+            },
         }),
         2 => {
             let mut rng = game_state.rng.clone();
             let mut deck = (0..13)
                 .flat_map(|rank| {
-                    [Suit::Clubs, Suit::Hearts].map(|suit| Card {
-                        suit: suit,
-                        is_facing_up: true,
-                        rank,
-                    })
+                    vec![
+                        Card {
+                            suit: Suit::Clubs,
+                            is_facing_up: true,
+                            rank,
+                        },
+                        Card {
+                            suit: Suit::Hearts,
+                            is_facing_up: true,
+                            rank,
+                        },
+                    ]
                 })
                 .collect::<Vec<_>>();
             deck.shuffle(&mut rng);
@@ -85,8 +103,8 @@ pub fn apply_cheat(game_state: &mut GameState, cheat: Cheat) {
             game_state
                 .stacks
                 .iter_mut()
-                .zip(turn_over_cards)
-                .for_each(|(stack, turn_over)| {
+                .zip(turn_over_cards.iter())
+                .for_each(|(stack, &turn_over)| {
                     if turn_over {
                         stack.last_mut().unwrap().is_facing_up = true;
                     }
@@ -143,8 +161,8 @@ pub fn undo_cheat(game_state: &mut GameState, cheat: Cheat) {
             game_state
                 .stacks
                 .iter_mut()
-                .zip(turn_over_cards)
-                .for_each(|(stack, turn_over)| {
+                .zip(turn_over_cards.iter())
+                .for_each(|(stack, &turn_over)| {
                     if turn_over {
                         stack.last_mut().unwrap().is_facing_up = false;
                     }

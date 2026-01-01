@@ -1,8 +1,8 @@
 use crate::SpiderRand;
 use crate::cards::{Card, CardRange, Groups, Suit};
-use crate::cheats::{Cheat, apply_cheat, undo_cheat};
-use rand::SeedableRng;
+use crate::cheats::{apply_cheat, undo_cheat, Cheat};
 use rand::prelude::SliceRandom;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ impl GameState {
     pub fn init(rand: &mut impl rand::Rng) -> GameState {
         let mut all_cards: Vec<_> = (0..13)
             .flat_map(|e| {
-                [
+                let cards = [
                     Card {
                         suit: crate::cards::Suit::Clubs,
                         rank: e as u8,
@@ -56,8 +56,11 @@ impl GameState {
                         rank: e as u8,
                         is_facing_up: false,
                     },
-                ]
-                .repeat(2)
+                ];
+                let mut repeated = Vec::with_capacity(8);
+                repeated.extend_from_slice(&cards);
+                repeated.extend_from_slice(&cards);
+                repeated
             })
             .collect();
 
@@ -78,7 +81,7 @@ impl GameState {
             ],
             deck: all_cards[..50].to_vec(),
             completed_stacks: vec![],
-            rng: SpiderRand::from_os_rng(),
+            rng: SpiderRand::from_entropy(),
         };
 
         for row in &mut state.stacks {
@@ -97,11 +100,15 @@ impl GameState {
         let dest = self.stacks[to].last();
         match dest {
             Some(e) => e.rank.checked_sub(1).and_then(|wanted_rank| {
-                last_group.contains_rank(wanted_rank).then(|| CardRange {
-                    suit: last_group.suit,
-                    is_facing_up: last_group.is_facing_up,
-                    rank: (last_group.rank.clone().next_back().unwrap()..=e.rank - 1).rev(),
-                })
+                if last_group.contains_rank(wanted_rank) {
+                    Some(CardRange {
+                        suit: last_group.suit,
+                        is_facing_up: last_group.is_facing_up,
+                        rank: (last_group.rank.clone().next_back().unwrap()..=e.rank - 1).rev(),
+                    })
+                } else {
+                    None
+                }
             }),
             None => Some(last_group),
         }
@@ -113,7 +120,8 @@ impl GameState {
         let set_is_facing_up = self.stacks[from]
             .len()
             .checked_sub(moved_cards.len() + 1)
-            .is_some_and(|i| !self.stacks[from][i].is_facing_up);
+            .map(|i| !self.stacks[from][i].is_facing_up)
+            .unwrap_or(false);
 
         Some(Action::Move {
             range: moved_cards,
@@ -160,7 +168,7 @@ impl GameState {
         }
     }
 
-    pub(crate) fn undo_action(&mut self, action: Action) {
+    pub fn undo_action(&mut self, action: Action) {
         match action {
             Action::Move {
                 from,

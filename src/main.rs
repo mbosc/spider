@@ -1,17 +1,19 @@
 use crate::action::{Action, GameState};
 use crate::cards::Groups;
 use crate::cheats::generate_cheat;
-use crate::tui::{Input, draw, get_input};
-use crossterm::{ExecutableCommand, terminal};
+use crate::tui::{draw, get_input, Input};
+use crossterm::{terminal, ExecutableCommand};
 use rand_xoshiro::Xoshiro512StarStar;
 use serde::{Deserialize, Serialize};
-use signal_hook::consts::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP};
+use signal_hook::consts::{SIGABRT, SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 use signal_hook::iterator::Signals;
-use std::fs::{OpenOptions, exists};
+use std::fs::OpenOptions;
 use std::io::stdout;
 use std::panic::{set_hook, take_hook};
+use std::path::Path;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 
 mod action;
@@ -56,7 +58,7 @@ impl StateWithUndoHistory {
         for (index, stack) in self.state.stacks.iter().enumerate() {
             if let Some(g) = Groups(stack)
                 .last()
-                .and_then(|e| (e.len() == 13).then_some(e))
+                .and_then(|e| if e.len() == 13 { Some(e) } else { None })
             {
                 actions.push((
                     g.suit,
@@ -88,7 +90,7 @@ impl StateWithUndoHistory {
 fn run_game(running: &AtomicBool) {
     let _terminal = tui::init().unwrap();
 
-    let mut game_state = if exists("spider-save.json").unwrap() {
+    let mut game_state = if Path::new("spider-save.json").exists() {
         serde_json::from_reader(
             OpenOptions::new()
                 .read(true)
@@ -98,7 +100,7 @@ fn run_game(running: &AtomicBool) {
         .unwrap()
     } else {
         StateWithUndoHistory {
-            state: GameState::init(&mut rand::rng()),
+            state: GameState::init(&mut rand::thread_rng()),
             undo_stack: Vec::new(),
         }
     };
@@ -114,13 +116,13 @@ fn run_game(running: &AtomicBool) {
         let value = get_input().unwrap();
         match value {
             Input::Restart => {
-                if std::fs::exists("spider-save.backup.json").unwrap() {
+                if Path::new("spider-save.backup.json").exists() {
                     std::fs::remove_file("spider-save.backup.json").unwrap();
                 }
                 std::fs::rename("spider-save.json", "spider-save.backup.json").unwrap();
 
                 game_state = StateWithUndoHistory {
-                    state: GameState::init(&mut rand::rng()),
+                    state: GameState::init(&mut rand::thread_rng()),
                     undo_stack: Vec::new(),
                 };
 
@@ -186,42 +188,40 @@ fn run_game(running: &AtomicBool) {
 fn main() {
     println!("Hello, world!");
 
-    let keep_running = AtomicBool::new(true);
+    let keep_running = Arc::new(AtomicBool::new(true));
+    let keep_running_clone = Arc::clone(&keep_running);
 
     let default_hook = take_hook();
     set_hook(Box::new(move |info| {
-        stdout().execute(terminal::LeaveAlternateScreen).unwrap();
-        terminal::disable_raw_mode().unwrap();
+        let _ = stdout().execute(terminal::LeaveAlternateScreen);
+        let _ = terminal::disable_raw_mode();
 
         default_hook(info);
     }));
 
-    let mut signals = Signals::new([SIGINT, SIGABRT, SIGTERM, SIGQUIT, SIGHUP, SIGTSTP]).unwrap();
+    let mut signals = Signals::new(&[SIGINT, SIGABRT, SIGTERM, SIGQUIT, SIGHUP]).unwrap();
     let sig_handle = signals.handle();
 
-    thread::scope(|scope| {
-        eprintln!("Starting thread");
-        let handle = scope.spawn(|| {
-            for sig in signals.forever() {
-                eprintln!("Got signal {sig}");
-                match sig {
-                    SIGINT | SIGTERM | SIGQUIT | SIGHUP | SIGABRT => {
-                        keep_running.store(false, Ordering::Relaxed);
+    eprintln!("Starting thread");
+    let handle = thread::spawn(move || {
+        for sig in signals.forever() {
+            eprintln!("Got signal {}", sig);
+            match sig {
+                SIGINT | SIGTERM | SIGQUIT | SIGHUP | SIGABRT => {
+                    keep_running_clone.store(false, Ordering::Relaxed);
 
-                        eprintln!("Exiting thead...");
-                        exit(0);
-                    }
-                    SIGTSTP => {}
-                    _ => unreachable!(),
-                };
-            }
-        });
-
-        run_game(&keep_running);
-        sig_handle.close();
-
-        handle.join().unwrap();
+                    eprintln!("Exiting thread...");
+                    exit(0);
+                }
+                _ => {}
+            };
+        }
     });
+
+    run_game(&keep_running);
+    sig_handle.close();
+
+    handle.join().unwrap();
 
     println!("Thanks for playing");
     exit(0);

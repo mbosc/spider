@@ -8,7 +8,7 @@ const FACE_UP_CHAR: char = '↑';
 const FACE_DOWN_CHAR: char = '↓';
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) enum Suit {
+pub enum Suit {
     #[serde(rename = "♣")]
     Clubs,
     #[serde(rename = "♥")]
@@ -78,11 +78,14 @@ impl<'de> Deserialize<'de> for Card {
     where
         D: Deserializer<'de>,
     {
-        let [suit, rank, is_facing_up] = String::deserialize(deserializer)?
-            .chars()
-            .collect::<Vec<char>>()
-            .try_into()
-            .map_err(|_| D::Error::custom("Expected 3 length string"))?;
+        let s = String::deserialize(deserializer)?;
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() != 3 {
+            return Err(D::Error::custom("Expected 3 length string"));
+        }
+        let suit = chars[0];
+        let rank = chars[1];
+        let is_facing_up = chars[2];
 
         Ok(Card {
             suit: Suit::from_char(suit).ok_or_else(|| D::Error::custom("Unexpected suit"))?,
@@ -91,7 +94,7 @@ impl<'de> Deserialize<'de> for Card {
             is_facing_up: match is_facing_up {
                 FACE_UP_CHAR => true,
                 FACE_DOWN_CHAR => false,
-                _ => Err(D::Error::custom("Unexpected is_facing_up"))?,
+                _ => return Err(D::Error::custom("Unexpected is_facing_up")),
             },
         })
     }
@@ -109,19 +112,19 @@ impl Card {
         Self::rank_to_char(self.rank)
     }
 
-    fn rank_to_char(rank: u8) -> char {
+    pub fn rank_to_char(rank: u8) -> char {
         match rank {
             0 => 'A',
-            x @ 1..9 => (x + b'1') as char,
+            x if x >= 1 && x <= 8 => (x + b'1') as char,
             9 => 'X',
             10 => 'J',
             11 => 'Q',
             12 => 'K',
-            x => panic!("Expected rank 0-13 exclusive, got: {x}"),
+            x => panic!("Expected rank 0-13 exclusive, got: {}", x),
         }
     }
 
-    fn get_rank_from_char(c: char) -> Option<u8> {
+    pub fn get_rank_from_char(c: char) -> Option<u8> {
         match c {
             'A' => Some(0),
             '2'..='9' => Some(c as u8 - b'1'),
@@ -176,11 +179,15 @@ impl<'de> Deserialize<'de> for CardRange {
     where
         D: Deserializer<'de>,
     {
-        let [suit, from, _, to, is_facing_up] = String::deserialize(deserializer)?
-            .chars()
-            .collect::<Vec<char>>()
-            .try_into()
-            .map_err(|_| D::Error::custom("Expected 5 length string"))?;
+        let s = String::deserialize(deserializer)?;
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() != 5 {
+            return Err(D::Error::custom("Expected 5 length string"));
+        }
+        let suit = chars[0];
+        let from = chars[1];
+        let to = chars[3];
+        let is_facing_up = chars[4];
 
         Ok(CardRange {
             suit: Suit::from_char(suit).ok_or_else(|| Error::custom("Bad suit"))?,
@@ -190,7 +197,7 @@ impl<'de> Deserialize<'de> for CardRange {
             is_facing_up: match is_facing_up {
                 FACE_UP_CHAR => true,
                 FACE_DOWN_CHAR => false,
-                _ => Err(D::Error::custom("Unexpected is_facing_up"))?,
+                _ => return Err(D::Error::custom("Unexpected is_facing_up")),
             },
         })
     }
@@ -202,11 +209,13 @@ impl CardRange {
     }
 
     pub fn contains_rank(&self, rank: u8) -> bool {
-        let (last, first) = (self.first(), self.clone().last());
+        let first_card = self.first();
+        let last_card = self.clone().last();
 
-        first
-            .zip(last)
-            .is_some_and(|(first, last)| first.rank <= rank && rank <= last.rank)
+        match (first_card, last_card) {
+            (Some(first), Some(last)) => first.rank <= rank && rank <= last.rank,
+            _ => false,
+        }
     }
 
     pub fn first(&self) -> Option<Card> {
@@ -229,8 +238,10 @@ impl Iterator for CardRange {
     }
 
     fn last(self) -> Option<Self::Item> {
+        let first_rank = self.rank.clone().next()?;
+        let len = self.rank.len();
         Some(Card {
-            rank: self.rank.clone().next()? + 1 - self.rank.len() as u8,
+            rank: first_rank + 1 - len as u8,
             suit: self.suit,
             is_facing_up: self.is_facing_up,
         })
@@ -245,14 +256,14 @@ impl<'a> Iterator for Groups<'a> {
         let first = *self.0.first()?;
         let mut last = first;
         let mut last_index = 0;
-        for (inex, &card) in self.0.iter().enumerate().skip(1) {
+        for (index, &card) in self.0.iter().enumerate().skip(1) {
             if first.is_facing_up
                 && card.is_facing_up
                 && card.suit == last.suit
                 && card.rank + 1 == last.rank
             {
                 last = card;
-                last_index = inex;
+                last_index = index;
             } else {
                 break;
             }

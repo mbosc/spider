@@ -101,29 +101,24 @@ static KEYBINDINGS: &[(Keybinding, KeybindingContext)] = &[
     ),
 ];
 
-pub fn get_keybindings(state: InputState) -> impl IntoIterator<Item = Keybinding> {
+pub fn get_keybindings(state: InputState) -> Vec<Keybinding> {
     KEYBINDINGS
         .iter()
-        .copied()
-        .filter(match state {
+        .filter(|(_, ctx)| match state {
             InputState::SelectSource => {
-                &(|i: &(Keybinding, KeybindingContext)| {
-                    matches!(
-                        i.1,
-                        KeybindingContext::NonCheatMenu | KeybindingContext::SelectSource
-                    )
-                }) as &dyn Fn(&(Keybinding, KeybindingContext)) -> bool
-            }
-
-            InputState::SelectDestination(_) => &|i: &(Keybinding, KeybindingContext)| {
                 matches!(
-                    i.1,
+                    ctx,
+                    KeybindingContext::NonCheatMenu | KeybindingContext::SelectSource
+                )
+            }
+            InputState::SelectDestination(_) => {
+                matches!(
+                    ctx,
                     KeybindingContext::NonCheatMenu | KeybindingContext::SelectDestination
                 )
-            },
-            InputState::CheatMenu => {
-                &|i: &(Keybinding, KeybindingContext)| matches!(i.1, KeybindingContext::CheatMenu)
             }
+            InputState::CheatMenu => matches!(ctx, KeybindingContext::CheatMenu),
         })
-        .map(|i| i.0)
+        .map(|(kb, _)| *kb)
+        .collect()
 }
